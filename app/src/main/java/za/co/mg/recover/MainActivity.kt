@@ -103,6 +103,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.refreshPermissions()
+        // Coming back from "Install unknown apps" settings: carry on with the update.
+        if (Updater.canInstall(this)) vm.installPending(this)
     }
 }
 
@@ -209,7 +211,7 @@ fun RecoverScreen(vm: RecoverViewModel) {
                             menuOpen = false; showHelp = true
                         })
                         DropdownMenuItem(text = { Text("Check for update") }, onClick = {
-                            menuOpen = false; openUrl(ctx, "$REPO_URL/releases/latest")
+                            menuOpen = false; vm.checkUpdate(manual = true)
                         })
                     }
                 }
@@ -278,6 +280,29 @@ fun RecoverScreen(vm: RecoverViewModel) {
         )
     }
 
+    vm.update?.let { info ->
+        val p = vm.updateProgress
+        AlertDialog(
+            onDismissRequest = { if (p == null) vm.update = null },
+            title = { Text("Update available") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Version ${info.versionName} is ready (you have ${BuildConfig.VERSION_NAME}).")
+                    if (p != null) {
+                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                        Text("Downloading… ${(p * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(enabled = p == null, onClick = { vm.downloadAndInstall(ctx) }) { Text("Update now") }
+            },
+            dismissButton = {
+                if (p == null) TextButton(onClick = { vm.update = null }) { Text("Later") }
+            }
+        )
+    }
+
     if (showHelp) {
         AlertDialog(
             onDismissRequest = { showHelp = false },
@@ -311,7 +336,7 @@ private fun Header(vm: RecoverViewModel, onAllFiles: () -> Unit, onPhotos: () ->
                     Text("Give Recover access", fontWeight = FontWeight.Bold)
                     Text(
                         "\"All files access\" lets Recover look in hidden folders, bins, thumbnail caches and chat-app folders. " +
-                                "Nothing leaves your phone – the app has no internet permission.",
+                                "Nothing leaves your phone – internet is only used to check for app updates.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

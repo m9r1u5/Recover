@@ -81,7 +81,65 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var message by mutableStateOf<String?>(null)
 
-    init { refreshPermissions() }
+    // ---- in-app update ----
+    var update by mutableStateOf<UpdateInfo?>(null)
+    var updateProgress by mutableStateOf<Float?>(null)
+        private set
+    private var pendingApk: java.io.File? = null
+
+    init {
+        refreshPermissions()
+        checkUpdate(manual = false)
+    }
+
+    fun checkUpdate(manual: Boolean) {
+        viewModelScope.launch {
+            if (manual) message = "Checking for updates…"
+            try {
+                val info = withContext(Dispatchers.IO) { Updater.check() }
+                if (info != null) update = info
+                else if (manual) message = "You have the latest version (v${BuildConfig.VERSION_NAME})"
+            } catch (e: Exception) {
+                if (manual) message = "Couldn't check for updates – are you online?"
+            }
+        }
+    }
+
+    /** Downloads the update, then installs it (asking for "install unknown apps" the first time). */
+    fun downloadAndInstall(activity: Context) {
+        val info = update ?: return
+        if (updateProgress != null) return
+        updateProgress = 0f
+        viewModelScope.launch {
+            try {
+                val apk = withContext(Dispatchers.IO) {
+                    Updater.download(ctx, info) { p -> main.post { updateProgress = p } }
+                }
+                updateProgress = null
+                update = null
+                pendingApk = apk
+                installPending(activity)
+            } catch (e: Exception) {
+                updateProgress = null
+                message = "Update download failed: ${e.message}"
+            }
+        }
+    }
+
+    fun installPending(activity: Context) {
+        val apk = pendingApk ?: return
+        if (!Updater.canInstall(activity)) {
+            message = "Allow Recover to install updates, then come back"
+            Updater.askInstallPermission(activity)
+            return
+        }
+        pendingApk = null
+        try {
+            Updater.install(activity, apk)
+        } catch (e: Exception) {
+            message = "Couldn't open installer: ${e.message}"
+        }
+    }
 
     fun refreshPermissions() {
         hasPhotoAccess = Perms.hasPhotos(ctx)
