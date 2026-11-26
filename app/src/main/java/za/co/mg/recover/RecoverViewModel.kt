@@ -74,6 +74,7 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
     var selected by mutableStateOf<Set<String>>(emptySet())
     var filter by mutableStateOf<Source?>(null)
     var sortBy by mutableStateOf(SortBy.NEWEST)
+    var deletedOnly by mutableStateOf(true)
     var hasPhotoAccess by mutableStateOf(false)
         private set
     var hasAllFiles by mutableStateOf(false)
@@ -88,7 +89,7 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun shown(): List<Found> {
-        val list = results.filter { filter == null || it.source == filter }
+        val list = visible().filter { filter == null || it.source == filter }
         return when (sortBy) {
             SortBy.NEWEST -> list.sortedByDescending { it.modified }
             SortBy.LARGEST -> list.sortedByDescending { it.size }
@@ -96,7 +97,10 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun count(s: Source) = results.count { it.source == s }
+    fun visible(): List<Found> = if (deletedOnly) results.filter { !it.inGallery } else results
+    fun count(s: Source) = visible().count { it.source == s }
+    val deletedCount: Int get() = results.count { !it.inGallery }
+    val inGalleryCount: Int get() = results.count { it.inGallery }
 
     fun startScan() {
         if (scanning) return
@@ -119,7 +123,8 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
             results = found
             scanning = false
             scannedOnce = true
-            message = if (found.isEmpty()) "No deleted photos found" else "Found ${found.size} photos"
+            val del = found.count { !it.inGallery }
+            message = if (del == 0) "No deleted photos found" else "Found $del possible deleted photos"
         }
     }
 

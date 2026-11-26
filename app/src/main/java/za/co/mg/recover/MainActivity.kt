@@ -350,7 +350,50 @@ private fun Header(vm: RecoverViewModel, onAllFiles: () -> Unit, onPhotos: () ->
             }
         }
 
+        if (vm.scannedOnce && !vm.scanning) {
+            val bin = vm.results.count { it.source == Source.TRASH }
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (vm.deletedCount > 0) MaterialTheme.colorScheme.secondaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(Modifier.padding(14.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        if (vm.deletedCount > 0) "${vm.deletedCount} possible deleted photos"
+                        else "No deleted photos left on this phone",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Phone bin: $bin · Copies of photos still in your gallery: ${vm.inGalleryCount} (hidden)",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (vm.deletedCount == 0) {
+                        Text(
+                            "Your phone has already wiped them. Check the cloud bins at the bottom – that's the best chance now.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+
         if (vm.results.isNotEmpty()) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(
+                    selected = vm.deletedOnly,
+                    onClick = { vm.deletedOnly = true; vm.filter = null },
+                    label = { Text("Deleted only ${vm.deletedCount}") }
+                )
+                FilterChip(
+                    selected = !vm.deletedOnly,
+                    onClick = { vm.deletedOnly = false; vm.filter = null },
+                    label = { Text("Everything ${vm.results.size}") }
+                )
+            }
             Row(
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -358,7 +401,7 @@ private fun Header(vm: RecoverViewModel, onAllFiles: () -> Unit, onPhotos: () ->
                 FilterChip(
                     selected = vm.filter == null,
                     onClick = { vm.filter = null },
-                    label = { Text("All ${vm.results.size}") }
+                    label = { Text("All ${vm.visible().size}") }
                 )
                 Source.values().forEach { s ->
                     val c = vm.count(s)
@@ -372,6 +415,7 @@ private fun Header(vm: RecoverViewModel, onAllFiles: () -> Unit, onPhotos: () ->
                 }
             }
             Row(
+                Modifier.horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -380,7 +424,7 @@ private fun Header(vm: RecoverViewModel, onAllFiles: () -> Unit, onPhotos: () ->
                     FilterChip(
                         selected = vm.sortBy == s,
                         onClick = { vm.sortBy = s },
-                        label = { Text(s.label) }
+                        label = { Text(s.label, maxLines = 1) }
                     )
                 }
             }
@@ -424,7 +468,7 @@ private fun Thumb(f: Found, selected: Boolean, onTap: () -> Unit, onLong: () -> 
             Source.OTHER -> "Lost"
         }
         Text(
-            badge,
+            if (f.copies > 1) "$badge ×${f.copies}" else if (f.inGallery) "$badge · in gallery" else badge,
             color = Color.White,
             fontSize = 10.sp,
             modifier = Modifier
@@ -458,6 +502,13 @@ private fun PreviewDialog(f: Found, onDismiss: () -> Unit, onRestore: () -> Unit
                 )
                 Text(f.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text("${f.source.label} · ${Formatter.formatShortFileSize(ctx, f.size)}", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (f.inGallery) "A copy of a photo that is still in your gallery"
+                    else if (f.copies > 1) "Not in your gallery any more · ${f.copies} copies found (showing the biggest)"
+                    else "Not in your gallery any more",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
                 Text("Date: ${fmtDate(ctx, f.modified)}", style = MaterialTheme.typography.bodySmall)
                 if (f.source == Source.TRASH && f.expires > 0) {
                     Text("Deleted for good on: ${fmtDate(ctx, f.expires)}", style = MaterialTheme.typography.bodySmall)

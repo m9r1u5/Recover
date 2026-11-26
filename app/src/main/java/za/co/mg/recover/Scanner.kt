@@ -30,7 +30,11 @@ data class Found(
     val modified: Long,
     val file: File? = null,
     val uri: Uri? = null,
-    val expires: Long = 0L
+    val expires: Long = 0L,
+    /** True when this is just a copy of a photo that is still in the gallery. */
+    val inGallery: Boolean = false,
+    /** How many copies of this same picture were found. */
+    val copies: Int = 1
 ) {
     val model: Any get() = uri ?: file!!
 }
@@ -70,7 +74,8 @@ object Scanner {
         carveDir.mkdirs()
 
         walk(Environment.getExternalStorageDirectory(), gallery, known, carveDir, out, report, cancelled)
-        return out
+        if (cancelled()) return out
+        return Matcher.classify(ctx, out, report, cancelled)
     }
 
     // ---------- 1. System trash (Android 11+) ----------
