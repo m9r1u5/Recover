@@ -155,9 +155,11 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun visible(): List<Found> = if (deletedOnly) results.filter { !it.inGallery } else results
+    private fun isDeleted(f: Found) = !f.inGallery && f.source.personal
+    fun visible(): List<Found> = if (deletedOnly) results.filter { isDeleted(it) } else results
     fun count(s: Source) = visible().count { it.source == s }
-    val deletedCount: Int get() = results.count { !it.inGallery }
+    val deletedCount: Int get() = results.count { isDeleted(it) }
+    val appCacheCount: Int get() = results.count { !it.inGallery && !it.source.personal }
     val inGalleryCount: Int get() = results.count { it.inGallery }
 
     fun startScan() {
@@ -181,7 +183,7 @@ class RecoverViewModel(app: Application) : AndroidViewModel(app) {
             results = found
             scanning = false
             scannedOnce = true
-            val del = found.count { !it.inGallery }
+            val del = found.count { !it.inGallery && it.source.personal }
             message = if (del == 0) "No deleted photos found" else "Found $del possible deleted photos"
         }
     }

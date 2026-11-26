@@ -312,11 +312,12 @@ fun RecoverScreen(vm: RecoverViewModel) {
                 Text(
                     "Without root, no app can read the raw phone storage, and modern phones wipe deleted data quickly. " +
                             "Recover finds copies that are still there:\n\n" +
-                            "• Recently deleted – the phone's own bin (Android 11+, ~30 days). Restores to the original album.\n" +
-                            "• Bins & hidden – gallery recycle-bin folders and hidden leftover files.\n" +
-                            "• Thumbnails – small preview copies the gallery kept. Lower quality, but often all that's left.\n" +
-                            "• WhatsApp / Telegram – copies chat apps saved.\n" +
-                            "• Not in gallery – photos the gallery isn't showing.\n\n" +
+                            "• Phone bin – the phone's own bin (Android 11+, ~30 days). Restores to the original album.\n" +
+                            "• Recycle bins – leftovers in gallery recycle-bin folders.\n" +
+                            "• Gallery thumbnails – small preview copies the gallery kept. Lower quality, but often all that's left.\n" +
+                            "• WhatsApp / Telegram – pictures chat apps kept that aren't in your gallery.\n" +
+                            "• Photo folders – files in DCIM, Pictures or Download the gallery doesn't show.\n\n" +
+                            "Pictures that match a photo still in your gallery, and images other apps downloaded (song covers, video thumbnails), are not counted as deleted. Tap \"Everything\" to see them. Each picture shows the folder or app it was found in.\n\n" +
                             "Tap to select, long-press to preview. Restored files go to Pictures/Recovered.\n\n" +
                             "Tip: scan as soon as possible after deleting, and don't save new files in the meantime."
                 )
@@ -390,7 +391,7 @@ private fun Header(vm: RecoverViewModel, onAllFiles: () -> Unit, onPhotos: () ->
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "Phone bin: $bin · Copies of photos still in your gallery: ${vm.inGalleryCount} (hidden)",
+                        "Phone bin: $bin · Copies of gallery photos: ${vm.inGalleryCount} · App images: ${vm.appCacheCount} (not counted)",
                         style = MaterialTheme.typography.bodySmall
                     )
                     if (vm.deletedCount == 0) {
@@ -487,13 +488,12 @@ private fun Thumb(f: Found, selected: Boolean, onTap: () -> Unit, onLong: () -> 
                 val days = if (f.expires > 0) ((f.expires - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0) else -1
                 if (days >= 0) "Bin · ${days}d left" else "Bin"
             }
-            Source.BINS -> "Hidden"
-            Source.THUMBS -> "Thumb"
-            Source.MESSAGING -> "Chat"
-            Source.OTHER -> "Lost"
+            else -> f.place.ifBlank { f.source.label }
         }
         Text(
-            if (f.copies > 1) "$badge ×${f.copies}" else if (f.inGallery) "$badge · in gallery" else badge,
+            if (f.copies > 1) "$badge ×${f.copies}" else badge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             color = Color.White,
             fontSize = 10.sp,
             modifier = Modifier
@@ -526,9 +526,10 @@ private fun PreviewDialog(f: Found, onDismiss: () -> Unit, onRestore: () -> Unit
                     modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
                 )
                 Text(f.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${f.source.label} · ${Formatter.formatShortFileSize(ctx, f.size)}", style = MaterialTheme.typography.bodySmall)
+                Text("${f.source.label} · ${f.place} · ${Formatter.formatShortFileSize(ctx, f.size)}", style = MaterialTheme.typography.bodySmall)
                 Text(
                     if (f.inGallery) "A copy of a photo that is still in your gallery"
+                    else if (!f.source.personal) "An image another app downloaded (${f.place}) – not one of your photos"
                     else if (f.copies > 1) "Not in your gallery any more · ${f.copies} copies found (showing the biggest)"
                     else "Not in your gallery any more",
                     style = MaterialTheme.typography.bodySmall,

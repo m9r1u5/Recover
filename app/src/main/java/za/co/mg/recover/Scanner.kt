@@ -13,12 +13,13 @@ import java.io.File
 import java.io.FileInputStream
 
 /** Where a found photo came from. */
-enum class Source(val label: String, val blurb: String) {
-    TRASH("Recently deleted", "In the phone's bin. Restores to its original album."),
-    BINS("Bins & hidden", "Gallery recycle-bin and hidden leftover copies."),
-    THUMBS("Thumbnails", "Small preview copies kept by the gallery."),
-    MESSAGING("WhatsApp / Telegram", "Copies kept by chat apps."),
-    OTHER("Not in gallery", "Photos the gallery doesn't show.")
+enum class Source(val label: String, val blurb: String, val personal: Boolean) {
+    TRASH("Phone bin", "In the phone's bin. Restores to its original album.", true),
+    BINS("Recycle bins", "Leftovers in gallery recycle-bin folders.", true),
+    THUMBS("Gallery thumbnails", "Small preview copies the gallery/camera kept.", true),
+    MESSAGING("WhatsApp / Telegram", "Pictures chat apps kept that aren't in your gallery.", true),
+    OTHER("Photo folders", "Files in DCIM, Pictures or Download the gallery doesn't show.", true),
+    APP_CACHE("App images", "Pictures other apps downloaded (song covers, video thumbnails, feeds). Not your own photos.", false)
 }
 
 data class Found(
@@ -34,7 +35,9 @@ data class Found(
     /** True when this is just a copy of a photo that is still in the gallery. */
     val inGallery: Boolean = false,
     /** How many copies of this same picture were found. */
-    val copies: Int = 1
+    val copies: Int = 1,
+    /** Short name of the folder or app it was found in. */
+    val place: String = ""
 ) {
     val model: Any get() = uri ?: file!!
 }
@@ -180,13 +183,20 @@ object Scanner {
                 val ext = name.substringAfterLast('.', "").lowercase()
                 if (ext in skipExts) continue
 
-                val rel = abs.removePrefix(rootPath).lowercase()
+                val relCase = abs.removePrefix(rootPath)
+                val rel = relCase.lowercase()
                 val hidden = rel.split('/').any { it.startsWith(".") }
                 val thumbs = rel.contains("/.thumbnails") || name.startsWith(".thumbdata") ||
                         rel.contains("/thumbnails/") || rel.contains("/.thumbs")
                 val bins = rel.contains("/.trash") || rel.contains("trashed") ||
                         rel.contains("recycle") || rel.contains("/.deleted")
-                val messaging = rel.contains("whatsapp") || rel.contains("telegram")
+                val messaging = (rel.contains("whatsapp") || rel.contains("telegram")) &&
+                        !rel.contains("sticker") && !rel.contains("/cache")
+                val photoFolder = rel.startsWith("/dcim/") || rel.startsWith("/pictures/") ||
+                        rel.startsWith("/download/") || rel.startsWith("/screenshots/") ||
+                        rel.startsWith("/camera/")
+                val galleryApp = rel.contains("gallery3d") || rel.contains("com.google.android.apps.photos") ||
+                        rel.contains("com.sec.android.app.camera")
 
                 val candidate = ext in imageExts || ext.isEmpty() || hidden || thumbs || bins
                 if (!candidate) continue
@@ -194,11 +204,13 @@ object Scanner {
                 val kind = kindOf(f, header)
                 val source = when {
                     bins -> Source.BINS
-                    thumbs -> Source.THUMBS
                     messaging -> Source.MESSAGING
-                    hidden -> Source.BINS
-                    else -> Source.OTHER
+                    thumbs && (photoFolder || galleryApp) -> Source.THUMBS
+                    galleryApp -> Source.THUMBS
+                    photoFolder -> Source.OTHER
+                    else -> Source.APP_CACHE
                 }
+                val where = placeOf(relCase)
 
                 if (kind != null) {
                     out += Found(
@@ -208,15 +220,18 @@ object Scanner {
                         path = abs,
                         size = size,
                         modified = f.lastModified(),
-                        file = f
+                        file = f,
+                        place = where
                     )
                 } else if (thumbs && size <= MAX_CARVE_SIZE) {
                     // Old-style thumbnail databases hold many JPEGs glued together.
+                    val carvedSource = if (source == Source.APP_CACHE) Source.APP_CACHE else Source.THUMBS
                     report("Extracting previews from $name…")
                     carveJpegs(f, carveDir).forEachIndexed { i, piece ->
                         out += Found(
                             key = "carved:$abs#$i",
-                            source = Source.THUMBS,
+                            source = carvedSource,
+                            place = where,
                             name = "${name.trimStart('.')}_$i.jpg",
                             path = "$abs (#${i + 1})",
                             size = piece.length(),
@@ -228,6 +243,32 @@ object Scanner {
             }
         }
         report("Scanned $count files · found ${out.size}")
+    }
+
+    /** "WhatsApp", "DCIM/Camera", "YouTube"… – where a file was found, in plain words. */
+    fun placeOf(rel: String): String {
+        val parts = rel.trim('/').split('/').dropLast(1)
+        val low = parts.map { it.lowercase() }
+        val known = mapOf(
+            "com.whatsapp" to "WhatsApp", "com.whatsapp.w4b" to "WA Business",
+            "org.telegram.messenger" to "Telegram", "com.sec.android.gallery3d" to "Samsung Gallery",
+            "com.google.android.apps.photos" to "Google Photos", "com.google.android.youtube" to "YouTube",
+            "com.facebook.katana" to "Facebook", "com.instagram.android" to "Instagram",
+            "com.spotify.music" to "Spotify", "com.google.android.apps.youtube.music" to "YT Music"
+        )
+        for (p in low) known[p]?.let { return it }
+        if (low.any { it.contains("whatsapp") }) return "WhatsApp"
+        if (low.any { it.contains("telegram") }) return "Telegram"
+        val mediaIdx = low.indexOf("media")
+        if (low.firstOrNull() == "android" && mediaIdx == 1 && parts.size > 2) {
+            return parts[2].substringAfterLast('.').replaceFirstChar { it.uppercase() }
+        }
+        if (low.firstOrNull() == "android" && parts.size > 1) return parts[1].trimStart('.')
+        return when {
+            parts.isEmpty() -> "Phone storage"
+            parts.size == 1 -> parts[0].trimStart('.')
+            else -> parts[0].trimStart('.') + "/" + parts[1].trimStart('.')
+        }
     }
 
     fun kindOf(f: File, buf: ByteArray = ByteArray(16)): String? {
